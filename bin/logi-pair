@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Drive `solaar pair` for one receiver, line-buffered so the panel can show
+# each step (and, on Bolt receivers, the passkey) as it happens.
+#
+# Usage: logi-pair <receiver-serial-or-name-substring>
+set -uo pipefail
+
+target="${1:-}"
+if [[ -z "$target" ]]; then
+  echo "no receiver specified" >&2
+  exit 2
+fi
+
+# Solaar prints its progress with plain print(); without this the whole
+# pairing transcript arrives in one lump when the process exits, which is
+# useless for instructions the user is meant to follow live.
+export PYTHONUNBUFFERED=1
+exec solaar pair "$target"

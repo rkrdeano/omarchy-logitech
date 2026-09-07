@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Unpair one device from one receiver.
+#
+# Usage: logi-unpair <receiver-serial-or-name-substring> <device-number>
+set -uo pipefail
+
+receiver="${1:-}"
+device="${2:-}"
+if [[ -z "$receiver" || -z "$device" ]]; then
+  echo "usage: logi-unpair <receiver> <device-number>" >&2
+  exit 2
+fi
+
+export PYTHONUNBUFFERED=1
+exec solaar unpair --receiver "$receiver" "$device"
