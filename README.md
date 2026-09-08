@@ -73,6 +73,13 @@ the window is open:
 
 The receiver's pairing window is 30 seconds. Cancelling closes it early.
 
+Bolt pairing has a quiet tail: once you enter the passkey the device is paired
+and usable straight away, but `solaar pair` then blocks until the receiver
+closes its pairing lock, and it prints nothing in between. That wait is often
+tens of seconds. The card says so, and counts the seconds while it waits, so
+the pause does not read as a hang. The whole attempt is bounded by a
+150-second deadline.
+
 ## Reading device state
 
 Polling opens the receiver's hidraw node and pings every paired device, which
@@ -149,8 +156,9 @@ Example:
 qs -p /usr/share/omarchy/shell ipc call io.github.rkrdeano.logitech status
 qs -p /usr/share/omarchy/shell ipc call io.github.rkrdeano.logitech battery
 qs -p /usr/share/omarchy/shell ipc call io.github.rkrdeano.logitech refresh
-qs -p /usr/share/omarchy/shell ipc call io.github.rkrdeano.logitech pair          # first receiver
-qs -p /usr/share/omarchy/shell ipc call io.github.rkrdeano.logitech pair bolt     # or by kind/serial
+qs -p /usr/share/omarchy/shell ipc call io.github.rkrdeano.logitech pair bolt     # by kind or serial
+qs -p /usr/share/omarchy/shell ipc call io.github.rkrdeano.logitech pair ""       # first receiver
+qs -p /usr/share/omarchy/shell ipc call io.github.rkrdeano.logitech pairingState
 qs -p /usr/share/omarchy/shell ipc call io.github.rkrdeano.logitech cancelPair
 ```
 
@@ -158,7 +166,7 @@ Handy for a Hyprland keybinding:
 
 ```lua
 o.bind("SUPER SHIFT", "L", "Pair a Logitech device",
-  "qs -p /usr/share/omarchy/shell ipc call io.github.rkrdeano.logitech pair")
+  "qs -p /usr/share/omarchy/shell ipc call io.github.rkrdeano.logitech pair \"\"")
 ```
 
 ## Files

@@ -20,6 +20,7 @@ Item {
   property string pairingPasskey: ""
   property string pairingResult: ""     // "", "success", "error"
   property int pairingLinesSeen: 0
+  property int pairingElapsedSec: 0
   readonly property bool pairing: pairProcess.running
 
   // A pairing conversation is short and finite. Solaar's own windows are 30s
@@ -29,6 +30,11 @@ Item {
   // never exits, cannot grow the transcript or hold the receiver forever.
   readonly property int pairingDeadlineSec: 150
   readonly property int pairingMaxLinesAccepted: 500
+
+  // A pair request that arrived while the receiver was being read. Opening the
+  // panel starts a poll, so a click on "Pair a new device" lands inside that
+  // window routinely; dropping it there looked like a dead button.
+  property var pendingPairReceiver: null
 
   property var unpairTarget: null       // { receiver, device } awaiting confirmation
   readonly property bool unpairing: unpairProcess.running
@@ -72,14 +78,30 @@ Item {
   }
 
   function startPairing(receiver) {
-    if (!receiver || pairProcess.running || statusProcess.running) return
+    if (!receiver || pairProcess.running) return
     root.pairingReceiver = receiver
     root.pairingLines = []
     root.pairingPasskey = ""
     root.pairingResult = ""
     root.pairingLinesSeen = 0
+    root.pairingElapsedSec = 0
     root.lastError = ""
+
+    // A poll holds the same receiver this pairing needs. Wait it out rather
+    // than refusing: the card opens immediately either way, so the request is
+    // visibly accepted.
+    if (statusProcess.running) {
+      root.pendingPairReceiver = receiver
+      root.appendPairingLine("Finishing a read of the receiver first…")
+      return
+    }
+    beginPairing(receiver)
+  }
+
+  function beginPairing(receiver) {
+    if (!receiver || pairProcess.running) return
     pairingDeadline.restart()
+    pairingClock.restart()
     // Match by serial: two receivers of the same kind would both answer to a
     // name substring, and Solaar would just take the first.
     pairProcess.command = [root.binDir + "logi-pair", String(receiver.serial || receiver.name || "")]
@@ -88,6 +110,8 @@ Item {
 
   function cancelPairing() {
     pairingDeadline.stop()
+    pairingClock.stop()
+    root.pendingPairReceiver = null
     if (pairProcess.running) pairProcess.running = false
     root.pairingResult = ""
     root.pairingReceiver = null
@@ -143,6 +167,19 @@ Item {
     else if (entry.kind === "error") root.pairingResult = "error"
   }
 
+  // Solaar prints nothing between the passkey line and the final result: it is
+  // blocked waiting for the receiver to close its pairing lock, which can lag
+  // well past the moment the device is actually paired and working. Counting
+  // the seconds is the only honest progress signal available, and it keeps a
+  // long wait from reading as a hang.
+  Timer {
+    id: pairingClock
+    interval: 1000
+    repeat: true
+    running: false
+    onTriggered: root.pairingElapsedSec += 1
+  }
+
   Timer {
     id: pairingDeadline
     interval: root.pairingDeadlineSec * 1000
@@ -189,6 +226,12 @@ Item {
       } else {
         root.lastError = Model.elide(String(statusStderr.text || "") || "Could not read Logitech receivers")
       }
+
+      if (root.pendingPairReceiver) {
+        var queued = root.pendingPairReceiver
+        root.pendingPairReceiver = null
+        root.beginPairing(queued)
+      }
     }
   }
 
@@ -201,6 +244,7 @@ Item {
     stderr: SplitParser { onRead: function(line) { root.appendPairingLine(line) } }
     onExited: function(exitCode) {
       pairingDeadline.stop()
+      pairingClock.stop()
       if (exitCode !== 0 && root.pairingResult === "") {
         root.pairingResult = "error"
         root.appendPairingLine("Pairing did not complete.")

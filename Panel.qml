@@ -134,6 +134,16 @@ Panel {
       return dev ? dev.name + " " + Model.batteryText(dev) : "no battery reading"
     }
     function cancelPair(): string { root.popLayer(); return "ok" }
+    // What the pairing card is showing, without needing the panel on screen.
+    function pairingState(): string {
+      if (!logi.pairingReceiver) return "idle"
+      var parts = [logi.pairing ? "running" : (logi.pendingPairReceiver ? "queued" : "finished")]
+      parts.push("elapsed=" + logi.pairingElapsedSec + "s")
+      parts.push("result=" + (logi.pairingResult === "" ? "pending" : logi.pairingResult))
+      parts.push("passkeyShown=" + (logi.pairingPasskey !== "" && logi.pairingResult === ""))
+      parts.push("lines=" + logi.pairingLines.length)
+      return parts.join(" ")
+    }
     // Pairs against the first receiver unless one is named; the panel shows
     // the instructions, so open it too.
     function pair(receiver: string): string {
@@ -149,7 +159,8 @@ Panel {
       }
       root.open()
       logi.startPairing(target)
-      return "pairing with " + Model.receiverLabel(target)
+      if (!logi.pairingReceiver) return "could not start pairing"
+      return (logi.pairing ? "pairing with " : "pairing queued for ") + Model.receiverLabel(target)
     }
   }
 
@@ -222,7 +233,9 @@ Panel {
           PanelHero {
             width: parent.width
             title: "Logitech"
-            meta: Model.plainText(logi.pairing ? "Pairing…" : logi.statusText, 120)
+            meta: Model.plainText(logi.pairing
+              ? "Pairing… " + logi.pairingElapsedSec + "s"
+              : logi.statusText, 120)
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconOpacity: logi.onlineCount > 0 ? 1.0 : 0.6
@@ -278,7 +291,10 @@ Panel {
             // pulled out of the transcript and shown large.
             BorderSurface {
               width: parent.width
-              visible: logi.pairingPasskey !== ""
+              // Only while it is still something to act on: once pairing has
+              // succeeded or failed, a passkey on screen is a stale
+              // instruction telling you to do work that is already done.
+              visible: logi.pairingPasskey !== "" && logi.pairingResult === ""
               radius: Style.cornerRadius
               color: Style.selectedFillFor(root.foreground, Color.accent)
               implicitHeight: passkeyText.implicitHeight + Style.space(20)
@@ -298,6 +314,18 @@ Panel {
               }
             }
 
+            Text {
+              textFormat: Text.PlainText
+              width: parent.width
+              visible: logi.pairingPasskey !== "" && logi.pairingResult === ""
+              text: "Once you press enter the device is paired, but the receiver "
+                + "can take another half minute to confirm it here."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
             Repeater {
               model: logi.pairingLines
 
@@ -305,7 +333,10 @@ Panel {
                 textFormat: Text.PlainText
                 required property var modelData
                 width: pairingCard.width
+                // Once there is an outcome, the steps that led to it are
+                // noise; leave only the line that says what happened.
                 visible: modelData.kind !== "passkey"
+                  && (logi.pairingResult === "" || modelData.kind === "success" || modelData.kind === "error")
                 text: modelData.text
                 color: modelData.kind === "error" ? root.urgent
                   : (modelData.kind === "success" ? Color.accent : root.foreground)
@@ -318,7 +349,9 @@ Panel {
             Button {
               width: parent.width
               bordered: true
-              text: logi.pairing ? "Cancel pairing" : "Done"
+              text: logi.pairing
+                ? (logi.pairingPasskey === "" ? "Cancel pairing" : "Stop waiting")
+                : "Done"
               foreground: root.foreground
               fontFamily: root.fontFamily
               onClicked: root.popLayer()
