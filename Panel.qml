@@ -7,6 +7,12 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
+// Every label below carries `textFormat: Text.PlainText`. Device names and
+// pairing output are chosen by the peripheral, and Qt's default AutoText turns
+// anything markup-shaped into rich text — which will load the resources it
+// names, from inside the long-lived shell process. Labels this plugin does not
+// own (the bar tooltip, PanelHero) cannot be configured that way, so the
+// strings handed to them go through Model.plainText instead.
 Panel {
   id: root
   moduleName: "io.github.rkrdeano.logitech"
@@ -162,7 +168,8 @@ Panel {
       var dev = Model.lowestBatteryDevice(logi.status)
       var base = logi.statusText
       if (dev) base += " — " + dev.name + " " + Model.batteryText(dev)
-      return base + " · right-click to refresh"
+      // Rendered by the bar's own tooltip, which uses AutoText.
+      return Model.plainText(base + " · right-click to refresh", 200)
     }
     onPressed: function(buttonCode) {
       if (buttonCode === Qt.RightButton) logi.refresh()
@@ -215,12 +222,13 @@ Panel {
           PanelHero {
             width: parent.width
             title: "Logitech"
-            meta: logi.pairing ? "Pairing…" : logi.statusText
+            meta: Model.plainText(logi.pairing ? "Pairing…" : logi.statusText, 120)
             foreground: root.foreground
             fontFamily: root.fontFamily
             iconOpacity: logi.onlineCount > 0 ? 1.0 : 0.6
             iconComponent: Component {
               Text {
+                textFormat: Text.PlainText
                 text: root.barGlyph
                 color: logi.batteryLow ? root.urgent : (logi.onlineCount > 0 ? Color.accent : root.dim)
                 font.family: root.fontFamily
@@ -250,12 +258,14 @@ Panel {
             PanelSeparator { foreground: root.foreground }
 
             PanelSectionHeader {
+              textFormat: Text.PlainText
               text: logi.pairing ? "PAIRING" : (logi.pairingResult === "success" ? "PAIRED" : "PAIRING FINISHED")
               foreground: root.foreground
               fontFamily: root.fontFamily
             }
 
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               text: logi.pairingReceiver ? Model.receiverLabel(logi.pairingReceiver) : ""
               color: root.dim
@@ -274,6 +284,7 @@ Panel {
               implicitHeight: passkeyText.implicitHeight + Style.space(20)
 
               Text {
+                textFormat: Text.PlainText
                 id: passkeyText
                 anchors.centerIn: parent
                 width: parent.width - Style.space(20)
@@ -291,6 +302,7 @@ Panel {
               model: logi.pairingLines
 
               Text {
+                textFormat: Text.PlainText
                 required property var modelData
                 width: pairingCard.width
                 visible: modelData.kind !== "passkey"
@@ -341,6 +353,7 @@ Panel {
             }
 
             Text {
+              textFormat: Text.PlainText
               width: parent.width
               visible: !logi.hasReceiver && (logi.status.devices || []).length === 0
               text: logi.refreshing
@@ -354,6 +367,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             width: parent.width
             visible: logi.lastError !== ""
             text: Model.ICON.alert + "  " + logi.lastError
@@ -364,6 +378,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             width: parent.width
             visible: !pairingCard.visible && logi.hasReceiver
             text: "enter: pair / unpair · u: unpair · r: refresh"
@@ -395,12 +410,14 @@ Panel {
         spacing: Style.space(2)
 
         PanelSectionHeader {
+          textFormat: Text.PlainText
           text: row ? row.label.toUpperCase() : ""
           foreground: root.foreground
           fontFamily: root.fontFamily
         }
 
         Text {
+          textFormat: Text.PlainText
           text: row ? row.meta : ""
           color: root.dim
           font.family: root.fontFamily
@@ -414,6 +431,7 @@ Panel {
     id: noteRowComponent
 
     Text {
+      textFormat: Text.PlainText
       property var row: null
       property int rowIndex: 0
       text: row ? row.label : ""
@@ -473,6 +491,7 @@ Panel {
         implicitHeight: Math.max(deviceIcon.implicitHeight, deviceLabels.implicitHeight, unpairBtn.implicitHeight, confirmRow.implicitHeight)
 
         Text {
+          textFormat: Text.PlainText
           id: deviceIcon
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
@@ -493,6 +512,7 @@ Panel {
           visible: !confirmRow.visible
 
           Text {
+            textFormat: Text.PlainText
             width: parent.width
             text: deviceRow.device ? deviceRow.device.name : ""
             color: deviceRow.device && deviceRow.device.online ? root.foreground : root.dim
@@ -502,6 +522,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             width: parent.width
             text: deviceRow.device ? Model.statusLine(deviceRow.device) : ""
             color: root.dim
@@ -512,6 +533,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           id: batteryLabel
           anchors.right: unpairBtn.left
           anchors.rightMargin: Style.space(6)
@@ -553,6 +575,7 @@ Panel {
           spacing: Style.space(8)
 
           Text {
+            textFormat: Text.PlainText
             anchors.verticalCenter: parent.verticalCenter
             width: Math.max(0, confirmRow.width - cancelButton.width - unpairButton.width - Style.space(16))
             text: "Unpair " + (deviceRow.device ? deviceRow.device.name : "") + "?"
@@ -625,6 +648,7 @@ Panel {
         spacing: Style.space(10)
 
         Text {
+          textFormat: Text.PlainText
           anchors.verticalCenter: parent.verticalCenter
           text: Model.ICON.pair
           color: pairRow.available ? Color.accent : root.dim
@@ -633,6 +657,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           anchors.verticalCenter: parent.verticalCenter
           text: row ? row.label : ""
           color: pairRow.available ? root.foreground : root.dim

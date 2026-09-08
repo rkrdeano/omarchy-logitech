@@ -106,6 +106,26 @@ remapping) that this widget deliberately does not duplicate. Do not run the
 Solaar tray at the same time as heavy use of this widget — both talk to the
 same receivers, and they can trip over each other.
 
+## Handling untrusted device input
+
+A peripheral chooses its own name, and `solaar` output is process text, so both
+are treated as untrusted:
+
+- Every label in the panel sets `textFormat: Text.PlainText`. Qt's default is
+  `AutoText`, which renders anything markup-shaped as rich text and loads the
+  resources it names — inside the long-lived shell process. Labels this plugin
+  does not own (the bar tooltip and `PanelHero`) cannot be configured that way,
+  so strings passed to them are stripped of `<`, `>` and `&` first, which keeps
+  Qt off the rich-text path entirely.
+- `bin/logi-status` scrubs control characters and truncates every string it
+  emits; `Model.js` re-applies the same caps when parsing, so the UI does not
+  depend on its own helper having been the only source.
+- Receiver, device, and pairing-transcript counts are bounded, battery levels
+  are clamped, and pairing stops on a deadline, so neither a chatty process nor
+  a device with a very long name can grow the shell's state without limit.
+
+`node test/sanitization.test.js` exercises all of the above.
+
 ## Settings
 
 Configure in `~/.config/omarchy/shell.json` on this widget's bar entry:
@@ -146,7 +166,9 @@ o.bind("SUPER SHIFT", "L", "Pair a Logitech device",
 - `manifest.json` — plugin metadata and settings schema
 - `Service.qml` — polling, udev monitoring, pairing and unpairing processes
 - `Panel.qml` — bar icon, device list, pairing card, inline unpair confirmation
-- `Model.js` — JSON parsing, row building, battery and pairing-line formatting
+- `Model.js` — JSON parsing and sanitizing, row building, battery and
+  pairing-line formatting
+- `test/sanitization.test.js` — bounds and escaping checks for device input
 - `bin/logi-status` — JSON snapshot of receivers and devices
 - `bin/logi-pair` — line-buffered `solaar pair` wrapper
 - `bin/logi-unpair` — `solaar unpair` wrapper

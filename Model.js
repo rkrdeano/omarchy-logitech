@@ -19,6 +19,79 @@ function emptyStatus() {
   return { receivers: [], devices: [], errors: [], ok: false }
 }
 
+// Bounds for anything a peripheral chooses. `bin/logi-status` already caps its
+// output, but a plugin must not depend on its own helper being the only thing
+// that ever reaches these bindings, so the caps are re-applied here.
+var MAX_TEXT = 64
+var MAX_LINE = 200
+var MAX_RECEIVERS = 8
+var MAX_DEVICES = 16
+var MAX_PAIRING_LINES = 40
+
+// Strip control characters (which can reflow or blank a label) and truncate.
+function safeText(value, limit) {
+  var text = String(value === undefined || value === null ? "" : value)
+  text = text.replace(/[\u0000-\u001F\u007F-\u009F]/g, " ").trim()
+  var max = limit || MAX_TEXT
+  return text.length > max ? text.substring(0, max - 1) + "\u2026" : text
+}
+
+// For sinks this plugin does not own — the shell's bar tooltip and PanelHero
+// render with Qt's default AutoText, which turns anything markup-shaped into
+// rich text and will load the resources it names. Qt only takes that path when
+// it sees a tag or an entity, so removing "<", ">" and "&" keeps a
+// device-chosen string literal no matter how the sink is configured.
+function plainText(value, limit) {
+  return safeText(value, limit).replace(/[<>&]/g, "")
+}
+
+function normalizeDevice(dev) {
+  if (!dev || typeof dev !== "object") return null
+  var battery = null
+  if (dev.battery && typeof dev.battery === "object") {
+    var percent = parseInt(dev.battery.percent, 10)
+    battery = {
+      percent: isFinite(percent) ? Math.max(0, Math.min(100, percent)) : null,
+      approximate: safeText(dev.battery.approximate, 32),
+      status: safeText(dev.battery.status, 32),
+      charging: dev.battery.charging === true
+    }
+  }
+  var number = parseInt(dev.number, 10)
+  return {
+    number: isFinite(number) ? number : 0,
+    name: safeText(dev.name) || "Unknown device",
+    codename: safeText(dev.codename, 32),
+    kind: safeText(dev.kind, 24),
+    serial: safeText(dev.serial, 32),
+    wpid: safeText(dev.wpid, 16),
+    online: dev.online === true,
+    battery: battery
+  }
+}
+
+function normalizeReceiver(rcv) {
+  if (!rcv || typeof rcv !== "object") return null
+  var devices = []
+  var source = rcv.devices || []
+  for (var i = 0; i < source.length && devices.length < MAX_DEVICES; i++) {
+    var dev = normalizeDevice(source[i])
+    if (dev) devices.push(dev)
+  }
+  var paired = parseInt(rcv.paired, 10)
+  var maximum = parseInt(rcv.maxDevices, 10)
+  return {
+    name: safeText(rcv.name) || "Logitech Receiver",
+    path: safeText(rcv.path, 128),
+    serial: safeText(rcv.serial, 32),
+    kind: safeText(rcv.kind, 24),
+    paired: isFinite(paired) ? paired : devices.length,
+    maxDevices: isFinite(maximum) ? maximum : 0,
+    canPair: rcv.canPair !== false,
+    devices: devices
+  }
+}
+
 // `bin/logi-status` emits one JSON object. Anything else — a Python
 // traceback, an empty read after the process was killed — is treated as
 // "no data" rather than throwing inside a QML binding.
@@ -32,11 +105,32 @@ function parseStatus(raw) {
     return emptyStatus()
   }
   if (!data || typeof data !== "object") return emptyStatus()
+
+  var receivers = []
+  var rawReceivers = data.receivers || []
+  for (var i = 0; i < rawReceivers.length && receivers.length < MAX_RECEIVERS; i++) {
+    var rcv = normalizeReceiver(rawReceivers[i])
+    if (rcv) receivers.push(rcv)
+  }
+
+  var devices = []
+  var rawDevices = data.devices || []
+  for (var j = 0; j < rawDevices.length && devices.length < MAX_DEVICES; j++) {
+    var dev = normalizeDevice(rawDevices[j])
+    if (dev) devices.push(dev)
+  }
+
+  var errors = []
+  var rawErrors = data.errors || []
+  for (var k = 0; k < rawErrors.length && errors.length < 5; k++) {
+    errors.push(safeText(rawErrors[k], MAX_LINE))
+  }
+
   return {
-    receivers: data.receivers || [],
-    devices: data.devices || [],
-    errors: data.errors || [],
-    error: data.error || "",
+    receivers: receivers,
+    devices: devices,
+    errors: errors,
+    error: safeText(data.error, MAX_LINE),
     ok: true
   }
 }
@@ -237,7 +331,9 @@ function stepCursor(rows, from, direction) {
 // the one that matters most, so it gets its own kind and is stripped down to
 // the instruction itself.
 function classifyPairLine(line) {
-  var text = String(line || "").trim()
+  // A pairing line is process output, so it gets the same treatment as a
+  // device name: control characters out, length capped.
+  var text = safeText(line, MAX_LINE)
   if (text === "") return null
   var lower = text.toLowerCase()
   if (lower.indexOf("rules cannot access modifier keys") >= 0) return null  // solaar's Wayland notice
@@ -252,14 +348,14 @@ function classifyPairLine(line) {
 }
 
 function elide(text, limit) {
-  var value = String(text || "").replace(/\s+/g, " ").trim()
-  var max = limit || 160
-  return value.length > max ? value.substring(0, max - 1) + "…" : value
+  return safeText(String(text || "").replace(/\s+/g, " "), limit || 160)
 }
 
 if (typeof module !== "undefined") {
   module.exports = {
     ICON: ICON, parseStatus: parseStatus, deviceIcon: deviceIcon, kindLabel: kindLabel,
+    safeText: safeText, plainText: plainText, MAX_PAIRING_LINES: MAX_PAIRING_LINES,
+    normalizeDevice: normalizeDevice, normalizeReceiver: normalizeReceiver,
     receiverLabel: receiverLabel, shortSerial: shortSerial, batteryPercent: batteryPercent,
     batteryText: batteryText, batteryIcon: batteryIcon, statusLine: statusLine,
     allDevices: allDevices, onlineCount: onlineCount, lowestBattery: lowestBattery,

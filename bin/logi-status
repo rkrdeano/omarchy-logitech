@@ -14,9 +14,28 @@ try:
     from logitech_receiver import device as _device
     from logitech_receiver import receiver as _receiver
 except Exception as exc:  # solaar not installed, or an incompatible version
-    json.dump({"error": "solaar library unavailable: %s" % exc, "receivers": []}, sys.stdout)
+    message = "solaar library unavailable: %s" % exc
+    json.dump({"error": message[:200], "receivers": []}, sys.stdout)
     sys.stdout.write("\n")
     sys.exit(0)
+
+
+# Every string below is chosen by the peripheral, not by us: a device reports
+# its own name, and a hostile or simply broken one can return control
+# characters, megabytes of text, or markup aimed at whatever renders it. Cap
+# and scrub at this boundary so nothing downstream has to trust the device.
+MAX_NAME = 64
+MAX_SHORT = 32
+MAX_PATH = 128
+MAX_ERROR = 200
+
+
+def clean(value, limit=MAX_SHORT):
+    text = "" if value is None else str(value)
+    # Drop C0/C1 controls (newlines included: every field here is one line).
+    text = "".join(ch for ch in text if ch.isprintable())
+    text = text.strip()
+    return text[:limit]
 
 
 def battery_of(dev):
@@ -38,14 +57,14 @@ def battery_of(dev):
         try:
             percent = int(level)
             if str(level) != str(percent):  # a NamedInt: has a word form too
-                approximate = str(level)
+                approximate = clean(level)
         except Exception:
-            approximate = str(level)
+            approximate = clean(level)
     status_lower = status_text.lower()
     return {
         "percent": percent,
         "approximate": approximate,
-        "status": status_text.split(".")[-1].replace("_", " ").lower(),
+        "status": clean(status_text.split(".")[-1].replace("_", " ").lower()),
         # "discharging" contains "charging", so match the recharge words only.
         "charging": "recharg" in status_lower or status_lower.startswith("charging"),
     }
@@ -58,11 +77,11 @@ def describe_device(dev, number=None):
         online = False
     out = {
         "number": int(number if number is not None else getattr(dev, "number", 0) or 0),
-        "name": str(getattr(dev, "name", "") or "Unknown device"),
-        "codename": str(getattr(dev, "codename", "") or ""),
-        "kind": str(getattr(dev, "kind", "") or "").lower(),
-        "serial": str(getattr(dev, "serial", "") or ""),
-        "wpid": str(getattr(dev, "wpid", "") or ""),
+        "name": clean(getattr(dev, "name", "") or "Unknown device", MAX_NAME) or "Unknown device",
+        "codename": clean(getattr(dev, "codename", "")),
+        "kind": clean(getattr(dev, "kind", "")).lower(),
+        "serial": clean(getattr(dev, "serial", "")),
+        "wpid": clean(getattr(dev, "wpid", "")),
         "online": online,
         "battery": battery_of(dev) if online else None,
     }
@@ -92,10 +111,10 @@ def describe_receiver(rcv):
     except Exception:
         remaining = None
     return {
-        "name": str(getattr(rcv, "name", "") or "Logitech Receiver"),
-        "path": str(getattr(rcv, "path", "") or ""),
-        "serial": str(getattr(rcv, "serial", "") or ""),
-        "kind": str(getattr(rcv, "receiver_kind", "") or ""),
+        "name": clean(getattr(rcv, "name", "") or "Logitech Receiver", MAX_NAME) or "Logitech Receiver",
+        "path": clean(getattr(rcv, "path", ""), MAX_PATH),
+        "serial": clean(getattr(rcv, "serial", "")),
+        "kind": clean(getattr(rcv, "receiver_kind", "")),
         "paired": paired,
         "maxDevices": maximum,
         # A Bolt receiver's pairing slots are finite; None means "not reported".
@@ -115,14 +134,14 @@ def main():
                 dev = _device.create_device(base, dev_info)
                 if dev is not None:
                     entry = describe_device(dev)
-                    entry["path"] = str(getattr(dev, "path", "") or "")
+                    entry["path"] = clean(getattr(dev, "path", ""), MAX_PATH)
                     wired.append(entry)
             else:
                 rcv = _receiver.create_receiver(base, dev_info)
                 if rcv is not None:
                     receivers.append(describe_receiver(rcv))
         except Exception as exc:
-            errors.append("%s: %s" % (getattr(dev_info, "path", "?"), exc))
+            errors.append(clean("%s: %s" % (getattr(dev_info, "path", "?"), exc), MAX_ERROR))
     json.dump({"receivers": receivers, "devices": wired, "errors": errors}, sys.stdout)
     sys.stdout.write("\n")
 

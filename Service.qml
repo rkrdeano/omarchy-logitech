@@ -19,7 +19,16 @@ Item {
   property var pairingLines: []
   property string pairingPasskey: ""
   property string pairingResult: ""     // "", "success", "error"
+  property int pairingLinesSeen: 0
   readonly property bool pairing: pairProcess.running
+
+  // A pairing conversation is short and finite. Solaar's own windows are 30s
+  // per phase, and a Bolt pairing runs discovery, pairing, and passkey entry
+  // back to back, so anything past this is a process that is not going to
+  // finish. Both bounds exist so a device that floods stdout, or a solaar that
+  // never exits, cannot grow the transcript or hold the receiver forever.
+  readonly property int pairingDeadlineSec: 150
+  readonly property int pairingMaxLinesAccepted: 500
 
   property var unpairTarget: null       // { receiver, device } awaiting confirmation
   readonly property bool unpairing: unpairProcess.running
@@ -68,7 +77,9 @@ Item {
     root.pairingLines = []
     root.pairingPasskey = ""
     root.pairingResult = ""
+    root.pairingLinesSeen = 0
     root.lastError = ""
+    pairingDeadline.restart()
     // Match by serial: two receivers of the same kind would both answer to a
     // name substring, and Solaar would just take the first.
     pairProcess.command = [root.binDir + "logi-pair", String(receiver.serial || receiver.name || "")]
@@ -76,6 +87,7 @@ Item {
   }
 
   function cancelPairing() {
+    pairingDeadline.stop()
     if (pairProcess.running) pairProcess.running = false
     root.pairingResult = ""
     root.pairingReceiver = null
@@ -113,14 +125,35 @@ Item {
   }
 
   function appendPairingLine(line) {
-    var entry = Model.classifyPairLine(line)
+    // Stop reading a process that will not stop talking, rather than letting
+    // it drive unbounded work in the shell.
+    if (root.pairingLinesSeen >= root.pairingMaxLinesAccepted) return
+    root.pairingLinesSeen += 1
+
+    var entry = Model.classifyPairLine(line)   // caps length, strips controls
     if (!entry) return
     var next = root.pairingLines.slice()
     next.push(entry)
+    // Keep the newest lines: the instruction to follow and the outcome are
+    // always at the end, and the passkey is held separately below.
+    while (next.length > Model.MAX_PAIRING_LINES) next.shift()
     root.pairingLines = next
     if (entry.kind === "passkey") root.pairingPasskey = entry.text
     else if (entry.kind === "success") root.pairingResult = "success"
     else if (entry.kind === "error") root.pairingResult = "error"
+  }
+
+  Timer {
+    id: pairingDeadline
+    interval: root.pairingDeadlineSec * 1000
+    repeat: false
+    running: false
+    onTriggered: {
+      if (!pairProcess.running) return
+      pairProcess.running = false
+      root.pairingResult = "error"
+      root.appendPairingLine("Pairing timed out and was stopped.")
+    }
   }
 
   Timer {
@@ -167,6 +200,7 @@ Item {
     stdout: SplitParser { onRead: function(line) { root.appendPairingLine(line) } }
     stderr: SplitParser { onRead: function(line) { root.appendPairingLine(line) } }
     onExited: function(exitCode) {
+      pairingDeadline.stop()
       if (exitCode !== 0 && root.pairingResult === "") {
         root.pairingResult = "error"
         root.appendPairingLine("Pairing did not complete.")
